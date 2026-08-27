@@ -1,0 +1,14 @@
+{
+  "name": "dusk-runner",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node dusk-server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
