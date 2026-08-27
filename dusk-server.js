@@ -50,7 +50,13 @@ wss.on('connection',ws=>{
     const found=roomOf(ws);
 
     if(m.t==='create'){
-      const code=mkRoom();
+      // 支持自定义房间码：create 带自定义 room 字段；空/缺省则自动分配
+      let code=String(m.room||'').trim();
+      if(code){
+        code=code.slice(0,12).replace(/[^\w-]/g,''); // 只留字母数字下划线短横
+        if(!code){send(ws,{t:'bad-room'});return;}
+        if(rooms.has(code)){send(ws,{t:'full',room:code});return;}
+      }else code=mkRoom();
       rooms.set(code,{p1:{ws,name:(m.name||'P1').slice(0,12)},p2:null,
         seed:crypto.randomInt(1,1e9)});
       send(ws,{t:'created',room:code,seed:rooms.get(code).seed});

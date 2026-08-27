@@ -577,15 +577,18 @@ document.querySelectorAll('.mbtn').forEach(b=>b.onclick=()=>{
   if(selMode==='online')netStatus(NET.ready?
     ('房间 '+NET.room+' · 对手 '+(NET.peer.name||'待加入')):'');
 });
-/* 联网按钮：创建/加入 */
+/* 联网按钮：输入框空→自动分配房间；填了码→用这个码建房（自定义房间码）。
+   若该码已被占用(别人建过)则自动转为加入。 */
 $('joinBtn').onclick=()=>{
+  if(NET.ready){ // 已在房间中：点击=退出重置
+    netSend({t:'leave'});NET.ready=false;NET.room=null;
+    netStatus('已离开房间，可重新创建/加入');$('roomInput').value='';return;}
   const code=$('roomInput').value.trim();
-  if(code.length===6&&/^\d{6}$/.test(code)&&!NET.ready){ // 有码→加入
-    netStatus('连接中…');
-    netConnect(()=>netSend({t:'join',room:code,name:'P1'}));}
-  else if(!NET.ready){ // 无码→创建
-    netStatus('连接中…');
-    netConnect(()=>netSend({t:'create',name:'P1'}));}
+  netStatus('连接中…');
+  netConnect(()=>{
+    if(code)netSend({t:'create',room:code,name:'P1'}); // 自定义码建房
+    else netSend({t:'create',name:'P1'});              // 自动分配
+  });
 };
 $('roomInput').addEventListener('keydown',e=>e.stopPropagation());
 document.querySelectorAll('.mbtn').forEach(b=>
@@ -690,9 +693,16 @@ function netConnect(cb){
       case 'peer-leave':
         NET.ready=false;netStatus('对手已离开房间');
         if(state===ST.RUN)toast('对手离开，比赛继续');break;
-      case 'full':netStatus('❌ 房间已满(2人)');break;
+      case 'full':
+        // 试图用自定义码建房但房间已存在 → 自动转为加入该房间
+        if(!NET.ready&&m.room&&$('roomInput').value.trim()===m.room){
+          netStatus('房间已存在，直接加入…');
+          netSend({t:'join',room:m.room,name:'P1'});}
+        else netStatus('❌ 房间已满(2人)');
+        break;
+      case 'bad-room':netStatus('❌ 房间码只能用字母/数字/短横线');break;
       case 'no-room':netStatus('❌ 找不到该房间');break;}}
-}
+  };
 function netStatus(s){$('netStatus').textContent=s;}
 function netSend(obj){
   if(NET.ws&&NET.ws.readyState===1)try{NET.ws.send(JSON.stringify(obj));}catch(e){}}
