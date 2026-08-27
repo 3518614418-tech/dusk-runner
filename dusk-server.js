@@ -79,6 +79,9 @@ wss.on('connection',ws=>{
       if(found&&found.other)send(found.other.ws,
         {t:'peer-dead',score:m.score,dist:m.dist});
     }
+    else if(m.t==='lobby'){ // 大厅角色同步
+      if(found&&found.other)send(found.other.ws,{t:'lobby',ch:m.ch});
+    }
     else if(m.t==='leave'||m.t==='close'){
       cleanup(ws);
     }

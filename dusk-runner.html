@@ -195,6 +195,37 @@ kbd{background:#00000066;border:1px solid var(--line);border-bottom-width:2px;
     </div>
   </div>
 
+  <!-- 联网房间大厅（独立界面） -->
+  <div class="screen hide" id="netlobby">
+    <h1 style="font-size:34px">房 间 大 厅</h1>
+    <div class="tag" id="lobbyMode"></div>
+    <div style="display:flex;gap:14px;align-items:center;margin:8px 0">
+      <span class="tag" style="letter-spacing:2px">房间码</span>
+      <b id="lobbyRoom" style="font-size:34px;letter-spacing:6px;color:var(--accent);
+        text-shadow:0 0 18px var(--accent)">------</b>
+      <button class="mbtn" id="copyRoomBtn" style="padding:4px 10px;font-size:12px">📋 复制</button>
+    </div>
+    <div style="display:flex;gap:26px;align-items:center;margin:6px 0 12px">
+      <div style="text-align:center;min-width:120px">
+        <div class="tag" style="letter-spacing:2px;margin-bottom:6px">你</div>
+        <canvas id="lobbyP1Cv" class="pcv" width="148" height="124"
+          style="border:2px solid var(--accent);border-radius:12px;background:#00000055"></canvas>
+        <div id="lobbyP1Name" style="margin-top:5px;font-size:13px;font-weight:700"></div>
+      </div>
+      <div style="font-size:26px;color:var(--dim);font-weight:800">VS</div>
+      <div style="text-align:center;min-width:120px">
+        <div class="tag" style="letter-spacing:2px;margin-bottom:6px">对手</div>
+        <canvas id="lobbyP2Cv" class="pcv" width="148" height="124"
+          style="border:2px dashed var(--line);border-radius:12px;background:#00000055"></canvas>
+        <div id="lobbyP2Name" style="margin-top:5px;font-size:13px;font-weight:700;color:var(--dim)">等待加入…</div>
+      </div>
+    </div>
+    <div id="lobbyWait" class="tag" style="letter-spacing:2px">⏳ 等待对手加入，把房间码发给朋友…</div>
+    <button class="btn hide" id="lobbyStartBtn">开 始 比 赛</button>
+    <button class="btn" id="lobbyBackBtn" style="background:transparent;color:var(--dim);
+      border:1px solid var(--line)">← 返回菜单</button>
+  </div>
+
   <div class="screen hide" id="over">
     <div class="tag" id="overTitle">旅 程 结 束</div>
     <div class="starsrow hide" id="starsRow"></div>
@@ -701,15 +732,33 @@ function netConnect(cb){
       case 'created':
         NET.room=m.room;NET.seed=m.seed;NET.host=true;NET.ready=true;
         $('roomInput').value=m.room;
-        netStatus('✅ 房间 '+m.room+' 已创建，等对手加入…');break;
+        netStatus('✅ 房间 '+m.room+' 已创建');
+        lobbyShow('created');break;
       case 'joined':
         NET.room=m.room;NET.seed=m.seed;NET.host=false;NET.ready=true;
         NET.peer.name=m.peerName||'房主';
-        netStatus('✅ 已加入房间 '+m.room+'，VS '+NET.peer.name);break;
+        netStatus('✅ 已加入房间 '+m.room);
+        lobbyShow('joined');break;
       case 'peer-join':
         NET.peer.name=m.name||'对手';NET.ready=true;
-        netStatus('👋 '+NET.peer.name+' 加入了！点「开始奔跑」开赛');
-        toast('👋 对手已加入');break;
+        netStatus('👋 '+NET.peer.name+' 加入了！');
+        if(!$('netlobby').classList.contains('hide')){ // 在大厅里: 更新对手栏
+          $('lobbyP2Name').textContent=NET.peer.name;
+          $('lobbyP2Cv').style.border='2px solid #5ad1e0';
+          $('lobbyWait').textContent='✅ 对手已就位！点下方按钮开赛';
+          $('lobbyStartBtn').classList.remove('hide');
+          toast('👋 对手已加入');}break;
+      case 'lobby':{ // 对手在大厅同步角色
+        NET.peer.char=m.ch||'shadow';
+        if(!$('netlobby').classList.contains('hide')&&NET.peer.char){
+          const p2=$('lobbyP2Cv');
+          if($('lobbyP2Name').textContent.includes('等待')){
+            $('lobbyP2Name').textContent=NET.peer.name||'对手';
+            $('lobbyP2Cv').style.border='2px solid #5ad1e0';
+            $('lobbyWait').textContent='✅ 对手已就位！点下方按钮开赛';
+            $('lobbyStartBtn').classList.remove('hide');}
+          drawPortrait(p2,NET.peer.char,lobbyTick+2);}
+        break;}
       case 'state':{const p=NET.peer;
         p.tx=m.x;p.ty=m.y;p.sl=!!m.sl;p.dead=!!m.d;p.score=m.sc;
         p.char=m.ch||'shadow';p.lastT=performance.now();break;}
@@ -718,7 +767,16 @@ function netConnect(cb){
         break;
       case 'peer-leave':
         NET.ready=false;netStatus('对手已离开房间');
-        if(state===ST.RUN)toast('对手离开，比赛继续');break;
+        if(state===ST.RUN)toast('对手离开，比赛继续');
+        if(!$('netlobby').classList.contains('hide')){ // 大厅里对手跑了
+          $('lobbyP2Name').textContent='等待加入…';
+          $('lobbyP2Name').style.color='var(--dim)';
+          $('lobbyP2Cv').style.border='2px dashed var(--line)';
+          $('lobbyWait').textContent='⏳ 对手离开了，继续等待…';
+          $('lobbyStartBtn').classList.add('hide');
+          const pc=$('lobbyP2Cv').getContext('2d');
+          pc.setTransform(1,0,0,1,0,0);pc.clearRect(0,0,148,124);
+          NET.peer.char=null;}break;
       case 'full':
         // 创建时码已存在 → 说明是朋友先建了房，自动转为加入
         if(!NET.ready&&m.room&&$('roomInput').value.trim()===m.room){
@@ -730,6 +788,53 @@ function netConnect(cb){
       case 'no-room':netStatus('❌ 找不到该房间');break;}}
   };
 function netStatus(s){$('netStatus').textContent=s;}
+/* ---- 房间大厅界面 ---- */
+let lobbyPortraitTimer=null;
+function lobbyShow(mode){ // mode: 'created' | 'joined'
+  $('menu').classList.add('hide');
+  $('netlobby').classList.remove('hide');
+  $('lobbyMode').textContent=mode==='created'?'你创建了房间':('你加入了 '+NET.peer.name+' 的房间');
+  $('lobbyRoom').textContent=NET.room;
+  $('lobbyP1Name').textContent=CHARS.find(c=>c.id===selChar).name+' (你)';
+  $('lobbyP2Name').textContent=mode==='created'?'等待加入…':(NET.peer.name||'房主');
+  $('lobbyP2Cv').style.border=mode==='created'?'2px dashed var(--line)':'2px solid #5ad1e0';
+  $('lobbyWait').textContent=mode==='created'?'⏳ 等待对手加入，把房间码发给朋友…':'⏳ 等待房主开始比赛…';
+  $('lobbyStartBtn').classList.add('hide');
+  // 自己的立绘
+  const p1=$('lobbyP1Cv');
+  const saveCtx=ctx;
+  drawPortrait(p1,selChar,0);
+  ctx=saveCtx;
+  // 对手立绘(已加入时显示其角色)
+  const p2=$('lobbyP2Cv');
+  const pc2=p2.getContext('2d');
+  pc2.setTransform(1,0,0,1,0,0);pc2.clearRect(0,0,148,124);
+  if(mode==='joined'&&NET.peer.char){
+    drawPortrait(p2,NET.peer.char,0);ctx=saveCtx;}
+  clearInterval(lobbyPortraitTimer);
+  lobbyPortraitTimer=setInterval(()=>{ // 立绘跑步动画
+    if($('netlobby').classList.contains('hide')){return;}
+    if(NET.connected&&NET.ready)netSend({t:'lobby',ch:selChar}); // 告知对手我的角色
+    lobbyTick+=0.16;
+    drawPortrait(p1,selChar,lobbyTick);ctx=saveCtx;
+    if(NET.peer.char){drawPortrait(p2,NET.peer.char,lobbyTick+2);ctx=saveCtx;}
+  },50);
+}
+let lobbyTick=0;
+function lobbyHide(){$('netlobby').classList.add('hide');$('menu').classList.remove('hide');
+  clearInterval(lobbyPortraitTimer);}
+$('copyRoomBtn').onclick=()=>{
+  const code=NET.room||'';
+  if(navigator.clipboard)navigator.clipboard.writeText(code)
+    .then(()=>toast('📋 房间码已复制:'+code))
+    .catch(()=>{});
+  else toast('房间码: '+code);};
+$('lobbyBackBtn').onclick=()=>{
+  netLeave();lobbyHide();
+  $('roomInput').value='';netStatus('已退出房间');};
+$('lobbyStartBtn').onclick=()=>{
+  if(!NET.ready){toast('对手还没加入!');return;}
+  lobbyHide();resetAndStart();};
 function netSend(obj){
   if(NET.ws&&NET.ws.readyState===1)try{NET.ws.send(JSON.stringify(obj));}catch(e){}}
 /* 联机开始：同种子 → 同地图 */
