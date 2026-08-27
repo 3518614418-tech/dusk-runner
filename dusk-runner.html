@@ -574,8 +574,16 @@ document.querySelectorAll('.mbtn').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.mbtn').forEach(x=>x.classList.toggle('sel',
     x.dataset.mode===selMode));buildMenu();buildMenu2();S.dj();
   $('netRow').classList.toggle('hide',selMode!=='online');
-  if(selMode==='online')netStatus(NET.ready?
-    ('房间 '+NET.room+' · 对手 '+(NET.peer.name||'待加入')):'');
+  if(selMode==='online'){
+    // 选中联网模式时自动预连接服务器(已连则跳过)
+    if(!NET.connected&&!NET.ws){
+      netStatus('连接服务器中…');
+      netConnect(ok=>{netStatus(ok?'✅ 服务器已连接，填码后点「加入房间」'
+        :'❌ 连不上服务器');});}
+    else if(NET.ready)
+      netStatus('房间 '+NET.room+' · 对手 '+(NET.peer.name||'待加入'));
+    else if(NET.connected)netStatus('✅ 服务器已连接，填码后点「加入房间」');
+  }
 });
 /* 联网按钮：输入框空→自动分配房间；填了码→用这个码建房（自定义房间码）。
    若该码已被占用(别人建过)则自动转为加入。 */
