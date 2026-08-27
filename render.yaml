@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: dusk-runner
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install
+    startCommand: node dusk-server.js
+    healthCheckPath: /
