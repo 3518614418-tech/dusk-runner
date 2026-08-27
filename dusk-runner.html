@@ -713,13 +713,16 @@ const NET={ws:null,room:null,seed:0,host:false,connected:false,
     tx:150,ty:GROUND,lastT:0,up:false},ready:false};
 function netConnect(cb){
   if(NET.connected){cb&&cb(true);return;}
-  // 连接地址：可被 URL 参数覆盖(?wss=wss://xxx)，否则跟随页面域名
-  // - 本机 file:// 打开 → ws://localhost:8765
-  // - 部署到服务器后 → 自动连同域名的 8765 端口
+  // 连接地址策略：
+  // 1) URL参数 ?wss=xxx 强制指定（本地调试连远程用）
+  // 2) http(s):// 页面 → 同域同端口（Render等托管平台，WS与页面同进程同端口）
+  // 3) file:// 本地打开 → ws://localhost:8765（本地服务器）
   const urlOverride=new URLSearchParams(location.search).get('wss');
-  const host=location.hostname||'localhost';
-  const url=urlOverride||((location.protocol==='https:'?'wss://':'ws://')
-    +host+':8765');
+  let url;
+  if(urlOverride)url=urlOverride;
+  else if(location.protocol==='http:'||location.protocol==='https:')
+    url=(location.protocol==='https:'?'wss://':'ws://')+location.host;
+  else url='ws://localhost:8765';
   try{NET.ws=new WebSocket(url);}catch(e){netStatus('❌ 无法连接服务器');return;}
   NET.ws.onopen=()=>{NET.connected=true;cb&&cb(true);};
   NET.ws.onclose=()=>{NET.connected=false;NET.ready=false;
