@@ -160,14 +160,19 @@ kbd{background:#00000066;border:1px solid var(--line);border-bottom-width:2px;
       <button class="mbtn" data-mode="versus">双人对战</button>
       <button class="mbtn" data-mode="online">🌐 联网竞速</button>
     </div>
-    <div class="lvls hide" id="netRow" style="display:flex;gap:10px;
-      align-items:center;justify-content:center;margin:10px 0 4px">
-      <input id="roomInput" maxlength="6" inputmode="numeric"
-        placeholder="房间码(6位)" style="width:150px;background:#00000066;
-        border:1px solid var(--line);border-radius:9px;color:var(--ink);
-        padding:8px 12px;font-size:15px;letter-spacing:3px;text-align:center;
-        outline:none">
-      <button class="mbtn" id="joinBtn">加入房间</button>
+    <div class="lvls hide" id="netRow" style="flex-direction:column;gap:8px;
+      align-items:center;margin:10px 0 4px">
+      <div style="display:flex;gap:10px;align-items:center">
+        <input id="roomInput" maxlength="12" placeholder="输入房间码(可自定)"
+          style="width:170px;background:#00000066;
+          border:1px solid var(--line);border-radius:9px;color:var(--ink);
+          padding:8px 12px;font-size:15px;letter-spacing:2px;text-align:center;
+          outline:none">
+        <button class="mbtn" id="joinBtn">🏠 创建房间</button>
+        <button class="mbtn" id="quickJoinBtn">🚪 加入房间</button>
+      </div>
+      <span class="tag" id="netHint" style="letter-spacing:1px;color:var(--dim);
+        font-size:11px">创建=用上面的码建房 · 加入=输入朋友的码进TA的房间</span>
       <span class="tag" id="netStatus" style="letter-spacing:1px"></span>
     </div>
     <div class="lvls hide" id="lvlRow"></div>
@@ -585,18 +590,30 @@ document.querySelectorAll('.mbtn').forEach(b=>b.onclick=()=>{
     else if(NET.connected)netStatus('✅ 服务器已连接，填码后点「加入房间」');
   }
 });
-/* 联网按钮：输入框空→自动分配房间；填了码→用这个码建房（自定义房间码）。
-   若该码已被占用(别人建过)则自动转为加入。 */
-$('joinBtn').onclick=()=>{
-  if(NET.ready){ // 已在房间中：点击=退出重置
-    netSend({t:'leave'});NET.ready=false;NET.room=null;
-    netStatus('已离开房间，可重新创建/加入');$('roomInput').value='';return;}
+/* 联网两按钮：
+   🏠 创建房间 = 用输入框的码建房(留空则自动分配)，已存在则视为加入
+   🚪 加入房间 = 直接用输入框的码加入(码不存在则提示) */
+function netLeave(){
+  if(NET.ready||NET.room){netSend({t:'leave'});
+    NET.ready=false;NET.room=null;
+    Object.assign(NET.peer,{up:false,dead:false});}
+}
+$('joinBtn').onclick=()=>{ // 🏠 创建
+  if(NET.ready){netLeave();
+    netStatus('已退出房间');$('roomInput').value='';return;}
   const code=$('roomInput').value.trim();
   netStatus('连接中…');
   netConnect(()=>{
-    if(code)netSend({t:'create',room:code,name:'P1'}); // 自定义码建房
-    else netSend({t:'create',name:'P1'});              // 自动分配
-  });
+    if(code)netSend({t:'create',room:code,name:'P1'}); // 自定义码
+    else netSend({t:'create',name:'P1'});});            // 自动分配
+};
+$('quickJoinBtn').onclick=()=>{ // 🚪 加入
+  if(NET.ready){netLeave();
+    netStatus('已退出房间');$('roomInput').value='';return;}
+  const code=$('roomInput').value.trim();
+  if(!code){netStatus('请先在左边输入朋友的房间码');return;}
+  netStatus('连接中…');
+  netConnect(()=>netSend({t:'join',room:code,name:'P1'}));
 };
 $('roomInput').addEventListener('keydown',e=>e.stopPropagation());
 document.querySelectorAll('.mbtn').forEach(b=>
@@ -703,9 +720,9 @@ function netConnect(cb){
         NET.ready=false;netStatus('对手已离开房间');
         if(state===ST.RUN)toast('对手离开，比赛继续');break;
       case 'full':
-        // 试图用自定义码建房但房间已存在 → 自动转为加入该房间
+        // 创建时码已存在 → 说明是朋友先建了房，自动转为加入
         if(!NET.ready&&m.room&&$('roomInput').value.trim()===m.room){
-          netStatus('房间已存在，直接加入…');
+          netStatus('该码房间已存在，自动加入…');
           netSend({t:'join',room:m.room,name:'P1'});}
         else netStatus('❌ 房间已满(2人)');
         break;
