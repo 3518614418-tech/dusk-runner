@@ -82,6 +82,9 @@ wss.on('connection',ws=>{
     else if(m.t==='lobby'){ // 大厅角色同步
       if(found&&found.other)send(found.other.ws,{t:'lobby',ch:m.ch});
     }
+    else if(m.t==='start'){ // 开赛信号：转发给对手(带seed)
+      if(found&&found.other)send(found.other.ws,{t:'start',seed:m.seed});
+    }
     else if(m.t==='leave'||m.t==='close'){
       cleanup(ws);
     }

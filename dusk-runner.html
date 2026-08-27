@@ -762,6 +762,11 @@ function netConnect(cb){
             $('lobbyStartBtn').classList.remove('hide');}
           drawPortrait(p2,NET.peer.char,lobbyTick+2);}
         break;}
+      case 'start': // 房主点了开始：加入方同步开赛(用同一seed)
+        NET.seed=m.seed;
+        lobbyHide();
+        state=ST.MENU;resetAndStart();
+        toast('🏁 房主已开赛!');break;
       case 'state':{const p=NET.peer;
         p.tx=m.x;p.ty=m.y;p.sl=!!m.sl;p.dead=!!m.d;p.score=m.sc;
         p.char=m.ch||'shadow';p.lastT=performance.now();break;}
@@ -837,7 +842,9 @@ $('lobbyBackBtn').onclick=()=>{
   $('roomInput').value='';netStatus('已退出房间');};
 $('lobbyStartBtn').onclick=()=>{
   if(!NET.ready){toast('对手还没加入!');return;}
-  lobbyHide();resetAndStart();};
+  lobbyHide();
+  netSend({t:'start',seed:NET.seed}); // 通知对手同时开赛
+  state=ST.MENU;resetAndStart();};
 function netSend(obj){
   if(NET.ws&&NET.ws.readyState===1)try{NET.ws.send(JSON.stringify(obj));}catch(e){}}
 /* 联机开始：同种子 → 同地图 */
