@@ -675,7 +675,8 @@ function netConnect(cb){
   try{NET.ws=new WebSocket(url);}catch(e){netStatus('❌ 无法连接服务器');return;}
   NET.ws.onopen=()=>{NET.connected=true;cb&&cb(true);};
   NET.ws.onclose=()=>{NET.connected=false;NET.ready=false;
-    netStatus('与服务器的连接已断开');};
+    // 只在比赛/房间状态中才提示断线，菜单静态展示不算
+    netStatus(state===ST.RUN?'⚠️ 连接断开，比赛数据暂停同步':'');};
   NET.ws.onerror=()=>{if(!NET.connected)netStatus('❌ 连不上服务器(先运行 dusk-server.js)');};
   NET.ws.onmessage=ev=>{
     let m;try{m=JSON.parse(ev.data);}catch(e){return;}
