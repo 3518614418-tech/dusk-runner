@@ -767,6 +767,14 @@ function netConnect(cb){
         lobbyHide();
         state=ST.MENU;resetAndStart();
         toast('🏁 房主已开赛!');break;
+      case 'mirror':{ // 对手的真实画面镜像(观战时渲染这个)
+        NET.mirror=m;NET.mirrorT2=performance.now();
+        if(m.pn!=null)GHOST_P.animT=m.pn;
+        if(m.psc!=null)NET.peer.score=m.psc;
+        if(m.dx!=null)NET.peer.dist=m.dx;
+        NET.peer.sl=!!m.psl;NET.peer.char=m.pch||NET.peer.char;
+        NET.peer.tx=m.px;NET.peer.ty=m.py;
+        break;}
       case 'state':{const p=NET.peer;
         p.tx=m.x;p.ty=m.y;p.sl=!!m.sl;
         if(m.nm)p.name=m.nm; // 同步对手角色名(幽灵标签用)
@@ -876,6 +884,8 @@ function netSend(obj){
 function netStartRun(){
   srand(NET.seed);
   NET._deadSent=false;NET.obsTimer=0;
+  NET.obsInit=false;NET.mirror=null;NET.mirrorT2=0;NET.obsShowPeer=false;
+  NET.mirrorT=0;
   Object.assign(NET.peer,{x:150,y:GROUND,tx:150,ty:GROUND,sl:false,
     dead:false,deadRot:0,gone:false,score:0,dist:0,up:true});
   netStatus('🏃 比赛中 · 房间 '+NET.room);}
@@ -887,7 +897,20 @@ function netTick(){ // 运行中每帧发送本机状态(约20Hz)
     dx:Math.floor(dist),ch:G.char?G.char.id:'shadow',nm:(G.char?G.char.name:'')});
   // 死亡瞬间：补发一次独立的dead包(防state丢包)
   if(player.dead&&!NET._deadSent){NET._deadSent=true;
-    netSend({t:'dead',score:Math.floor(score),dist:Math.floor(dist)});}}
+    netSend({t:'dead',score:Math.floor(score),dist:Math.floor(dist)});}
+  // 状态镜像：我活着且对手死了(在观战我) → 广播完整障碍画面(限速10Hz)
+  if(!player.dead&&NET.peer.dead){
+    NET.mirrorT=(NET.mirrorT||0)+1;
+    if(NET.mirrorT%2===0){ // 20Hz的tick里隔次发 = 10Hz镜像
+      const obs=obstacles.filter(o=>o.x>-100&&o.x<VW+300).map(o=>[
+        Math.round(o.x),o.kind,o.w,o.h,o.fly?1:0,
+        Math.round(o.fly?o.y:o.y||0),o.low?1:0,Math.round((o.anim||0)*100)]);
+      const ors=orbs.filter(b=>b.x>-30&&b.x<VW+100).map(b=>[
+        Math.round(b.x),Math.round(b.y),b.r]);
+      netSend({t:'mirror',obs,ors,
+        px:player.x+player.w/2,py:player.y-(player.slides?12:22),
+        psl:player.slides?1:0,pch:G.char?G.char.id:'shadow',
+        psc:Math.floor(score),pn:player.animT,dx:Math.floor(dist)});}}}
 function netDrawGhost(){
   const p=NET.peer;
   if(!p.up||p.tx==null)return;
@@ -1334,9 +1357,26 @@ function update(dt){
   if(!mp&&player.dead&&selMode!=='online'){ // 单人：死亡动画后结算
     player.deadVy+=1500*dt;player.y+=player.deadVy*dt;
     player.deadRot+=6*dt;fxUpdate(dt);return;}
-  if(selMode==='online'&&player.dead){ // 联机死亡：种子回放式观战（看到对手的真实地图）
-    // 首次进入观战：用同种子重建对手的障碍序列
-    if(!NET.obsInit){
+  if(selMode==='online'&&player.dead){ // 联机死亡：观战模式
+    // ═══ 优先用对手发来的画面镜像(真直播) ═══
+    const mirrorFresh=NET.mirror&&(performance.now()-NET.mirrorT2<1500);
+    if(mirrorFresh){
+      // 用对手广播的障碍/萤火直接重建画面 —— 所见即对手所见
+      obstacles=NET.mirror.obs.map(a=>({x:a[0],kind:a[1],w:a[2],h:a[3],
+        fly:!!a[4],y:a[5],low:!!a[6],anim:a[7]/100,flap:a[7]/100*2}));
+      orbs=NET.mirror.ors.map(a=>({x:a[0],y:a[1],r:a[2],t:0}));
+      dist=NET.mirror.dx||dist;
+      score=Math.max(score,NET.mirror.psc||0);
+      $('scoreEl').textContent=Math.floor(score);
+      // 对手的角色以实心绘制(观战主角), 固定在它发来的位置
+      player.dead=false;player.deadRot=0; // 临时恢复绘制标志
+      NET.obsShowPeer=true;
+    }else if(NET.obsInit){
+      // 镜像断了(对手掉线/卡) → 回退到种子回放模式
+      player.dead=true;
+    }
+    // 首次进入观战(镜像还没来): 先用种子回放顶着
+    if(!NET.obsInit&&!mirrorFresh){
       NET.obsInit=true;
       NET.obsDist=NET.peer.dist||0;
       obstacles=[];orbs=[];
@@ -1366,13 +1406,18 @@ function update(dt){
       const shift=lastX-VW-100;
       for(const o of obstacles)o.x-=shift;
       toast('📺 正在观战 '+NET.peer.name+' 的视角',true);}
-    // 每帧: 对手dist增量 → 世界推进(不截断, 大跳也完整推进, 靠删除出屏障碍兜底)
-    if(NET.peer.dist>NET.obsDist){
-      const dd=(NET.peer.dist-NET.obsDist)*28;
-      NET.obsDist=NET.peer.dist;
+    // 每帧: 对手dist增量 → 世界推进
+    // 平滑补间: 目标=对手dist, 本地obsDist以追赶系数逼近, 不瞬移
+    const targetDist=NET.peer.dist;
+    if(NET.obsDist<targetDist){
+      const gap=targetDist-NET.obsDist;
+      // 追赶式: 每帧走剩余差值的35%(60fps下约3帧追完大半), 至少按对手上次速度外推
+      const step=Math.max(gap*.35,.5);
+      NET.obsDist=Math.min(targetDist,NET.obsDist+step);
+      const dd=step*28;
       for(const o of obstacles)o.x-=dd;
       for(const b of orbs)b.x-=dd;
-      dist=NET.peer.dist;
+      dist=NET.obsDist;
       spawnGap-=dd;
       if(spawnGap<=0){spawnObstacle();schedule();}
       if(orbRow<=0){spawnOrbArc(VW+rnd(80,240));orbRow=rnd(420,900);}
@@ -1409,7 +1454,6 @@ function update(dt){
       P2.deadRot+=6*dt;}
     if(player.dead&&P2.dead){mpOver();return;}}
   if(state!==ST.RUN)return;
-
   // ---- 计时/进度/胜利判定 ----
   if(selMode==='time'){
     timeLeft-=dt;
@@ -1833,6 +1877,26 @@ function torsoShape(cx,cy,w,h,lean,base,light){
   ctx.closePath();ctx.fill();ctx.restore();
 }
 function drawPlayer(){
+  // 观战镜像模式：直接以实心绘制对手的角色(在它发来的位置)
+  if(selMode==='online'&&NET.obsShowPeer&&NET.mirror
+    &&performance.now()-NET.mirrorT2<1500){
+    const m=NET.mirror;
+    ctx.save();
+    ctx.translate(m.px,m.py);
+    ctx.scale(-1,1);
+    const saveAnimT=player.animT,saveSlides=player.slides,
+      saveOG=player.onGround,saveDead=player.dead;
+    player.animT=m.pn||0;player.slides=!!m.psl;player.onGround=true;player.dead=false;
+    drawPlayerBody(player,m.pch||'shadow',G);
+    player.animT=saveAnimT;player.slides=saveSlides;
+    player.onGround=saveOG;player.dead=saveDead;
+    ctx.restore();
+    ctx.save();ctx.font='700 12px "Avenir Next","PingFang SC",sans-serif';
+    ctx.textAlign='center';ctx.fillStyle='#9fc5ff';
+    ctx.fillText('📺 '+(NET.peer.name||'对手')+' · '+Math.floor(NET.peer.score),
+      m.px,m.py-66);
+    ctx.restore();
+    return;} // 观战时不画自己的尸体
   ctx.save();
   ctx.translate(player.x+player.w/2,player.y);
   if(player.dead)ctx.rotate(player.deadRot);
