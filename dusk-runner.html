@@ -769,14 +769,23 @@ function netConnect(cb){
         toast('🏁 房主已开赛!');break;
       case 'state':{const p=NET.peer;
         p.tx=m.x;p.ty=m.y;p.sl=!!m.sl;
+        const wasDead=p.dead;
         if(!p.dead)p.dead=!!m.d; // 对手一旦死亡标记，state不再覆盖
         if(!p.dead)p.score=m.sc; // 活着才刷新分
         p.dist=m.dx||p.dist;p.char=m.ch||'shadow';
-        p.lastT=performance.now();break;}
+        p.lastT=performance.now();
+        // 对手死亡标记首次从state出现(坠坑死漏发dead的兜底) → 补触发结算
+        if(!wasDead&&p.dead&&player.dead&&state===ST.OVER
+          &&$('over').classList.contains('hide')){
+          p.score=m.sc;p.dist=m.dx||p.dist;
+          setTimeout(maybeNetOver,600);}
+        break;}
       case 'peer-dead':
         toast('💀 对手阵亡 · '+Math.floor(m.score)+'分 · '+Math.floor(m.dist)+'m');
         NET.peer.dead=true;NET.peer.score=m.score;NET.peer.dist=m.dist;
-        if(player.dead&&state===ST.OVER)setTimeout(maybeNetOver,900);
+        // 我也死了且还没弹结算 → 弹出VS结算
+        if(player.dead&&state===ST.OVER&&$('over').classList.contains('hide')){
+          setTimeout(maybeNetOver,900);}
         break;
       case 'rematch': // 对手请求重赛
         NET.rematchPeer=true;
@@ -866,7 +875,7 @@ function netSend(obj){
 function netStartRun(){
   srand(NET.seed);
   Object.assign(NET.peer,{x:150,y:GROUND,tx:150,ty:GROUND,sl:false,
-    dead:false,deadRot:0,score:0,dist:0,up:true});
+    dead:false,deadRot:0,gone:false,score:0,dist:0,up:true});
   netStatus('🏃 比赛中 · 房间 '+NET.room);}
 function netTick(){ // 运行中每帧发送本机状态(约20Hz)
   if(!NET.ready||!NET.connected)return;
@@ -876,16 +885,21 @@ function netTick(){ // 运行中每帧发送本机状态(约20Hz)
     dx:Math.floor(dist),ch:G.char?G.char.id:'shadow'});}
 function netDrawGhost(){
   const p=NET.peer;
-  // 比赛结束(结算界面即将弹出)且对手已死 → 不再画幽灵
   if(!p.up||p.tx==null)return;
-  if(state===ST.OVER&&(p.dead||player.dead))return; // 结算时清出虚影
+  // 对手死了：1秒坠落淡出动画，之后永久消失
+  if(p.dead){
+    p.deadRot=(p.deadRot||0)+.09;
+    if(p.deadRot>4){p.gone=true;return;} // 动画播完 → 彻底移除
+  }
+  // 结算界面弹出后 → 不再绘制
+  if(state===ST.OVER&&!$('over').classList.contains('hide'))return;
+  if(p.gone)return;
   // 插值平滑
   p.x+=(p.tx-p.x)*.25;p.y+=(p.ty-p.y)*.25;
   ctx.save();
   ctx.translate(p.x,p.y);
-  if(p.dead){ // 对手已死：幽灵坠落旋转
-    p.deadRot=(p.deadRot||0)+.06;
-    ctx.rotate(p.deadRot);ctx.globalAlpha=Math.max(0,.45-(p.deadRot||0)*.1);
+  if(p.dead){ // 幽灵坠落旋转+快速淡出
+    ctx.rotate(p.deadRot);ctx.globalAlpha=Math.max(0,.45-(p.deadRot||0)*.18);
   }else ctx.globalAlpha=.45;
   ctx.scale(-1,1); // 幽灵镜像
   const sc=G.char;
@@ -1160,6 +1174,7 @@ function endRun(){
 /* 联机结算：双方都死(或对手已死) → 弹 VS 结算界面 */
 function maybeNetOver(){
   if(state!==ST.OVER)return;
+  if(!$('over').classList.contains('hide'))return; // 已弹过,幂等
   const s=Math.floor(score),s2=Math.floor(NET.peer.score||0);
   $('overTitle').textContent=s>s2?'🏆 你赢了！':(s2>s?'😢 对手获胜！':'🤝 平局！');
   $('finalScore').textContent=s+' : '+s2;
@@ -1268,7 +1283,9 @@ function fallIntoPit(pl){ // 坠坑：向下坠亡
   pl.dead=true;pl.deadVy=0;
   if(pl===P2)toast('P2 坠入深渊！');
   else if(mp)toast('P1 坠入深渊！');
-  else{state=ST.OVER;breakCombo();S.hit();shakeT=.35;setTimeout(showOver,700);}
+  else{ // 单人 / 联机：走统一死亡结算
+    if(selMode==='online'&&!player.dead){endRun();return;}
+    state=ST.OVER;breakCombo();S.hit();shakeT=.35;setTimeout(showOver,700);}
 }
 let lastMile=0;
 function update(dt){
