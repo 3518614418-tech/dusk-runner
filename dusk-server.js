@@ -85,6 +85,12 @@ wss.on('connection',ws=>{
     else if(m.t==='start'){ // 开赛信号：转发给对手(带seed)
       if(found&&found.other)send(found.other.ws,{t:'start',seed:m.seed});
     }
+    else if(m.t==='rematch'){ // 重赛请求
+      if(found&&found.other)send(found.other.ws,{t:'rematch'});
+    }
+    else if(m.t==='rematch-go'){ // 重赛种子
+      if(found&&found.other)send(found.other.ws,{t:'rematch-go',seed:m.seed});
+    }
     else if(m.t==='leave'||m.t==='close'){
       cleanup(ws);
     }

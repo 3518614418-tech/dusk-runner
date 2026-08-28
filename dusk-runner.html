@@ -768,13 +768,26 @@ function netConnect(cb){
         state=ST.MENU;resetAndStart();
         toast('🏁 房主已开赛!');break;
       case 'state':{const p=NET.peer;
-        p.tx=m.x;p.ty=m.y;p.sl=!!m.sl;p.dead=!!m.d;p.score=m.sc;
-        p.char=m.ch||'shadow';p.lastT=performance.now();break;}
+        p.tx=m.x;p.ty=m.y;p.sl=!!m.sl;
+        if(!p.dead)p.dead=!!m.d; // 对手一旦死亡标记，state不再覆盖
+        if(!p.dead)p.score=m.sc; // 活着才刷新分
+        p.dist=m.dx||p.dist;p.char=m.ch||'shadow';
+        p.lastT=performance.now();break;}
       case 'peer-dead':
         toast('💀 对手阵亡 · '+Math.floor(m.score)+'分 · '+Math.floor(m.dist)+'m');
         NET.peer.dead=true;NET.peer.score=m.score;NET.peer.dist=m.dist;
         if(player.dead&&state===ST.OVER)setTimeout(maybeNetOver,900);
         break;
+      case 'rematch': // 对手请求重赛
+        NET.rematchPeer=true;
+        if(NET.rematchMe){ // 我已点过 → 对手补齐了,由我发seed开赛
+          const sd=(Math.random()*1e9)|0;
+          netSend({t:'rematch-go',seed:sd});
+          netDoRematch(sd);}
+        else toast('🔁 对手想再来一局！点「再来一局」应战');
+        break;
+      case 'rematch-go': // 对手发来重赛种子 → 用对方的seed开赛(保证地图一致)
+        netDoRematch(m.seed);break;
       case 'peer-leave':
         NET.ready=false;netStatus('对手已离开房间');
         if(state===ST.RUN)toast('对手离开，比赛继续');
@@ -894,7 +907,9 @@ addEventListener('keydown',e=>{
   if(e.repeat)return;const k=e.code;
   if(k==='Space'){e.preventDefault();
     if(state===ST.MENU)startGame();
-    else if(state===ST.OVER)backToMenuOrRetry(true);
+    else if(state===ST.OVER){
+      if(selMode==='online'&&NET.ready)netRematchClick(); // 联机=请求重赛
+      else backToMenuOrRetry(true);}
     else doJump();}
   else if(k==='KeyW'){e.preventDefault();doJump();}      // P1 跳（始终）
   else if(k==='KeyS'){e.preventDefault();setSlide(true);} // P1 铲（始终）
@@ -1154,7 +1169,32 @@ function maybeNetOver(){
   $('newBest').textContent='房间 '+NET.room;
   $('starsRow').classList.add('hide');
   $('over').classList.remove('hide');
+  // 联机结算：显示重赛等待状态
+  NET.rematchMe=false;NET.rematchPeer=false;
+  $('retryBtn').textContent='🔁 再来一局';
+  $('backBtn').textContent='← 返回菜单';
 }
+/* 联机重赛：双方都点 → 同步重开。种子规则: 谁后点谁生成,保证双方都确认后再开 */
+function netRematchClick(){
+  if(NET.rematchMe)return;
+  NET.rematchMe=true;S.coin();
+  netSend({t:'rematch'});
+  if(NET.rematchPeer){ // 对手已点过 → 我补齐, 我生成种子并广播
+    const seed=(Math.random()*1e9)|0;
+    netSend({t:'rematch-go',seed});
+    netDoRematch(seed);}
+  else toast('已请求重赛，等待对手…');}
+function netDoRematch(seed){
+  $('over').classList.add('hide');
+  NET.seed=seed||((Math.random()*1e9)|0);
+  NET.rematchMe=false;NET.rematchPeer=false;
+  // 重置双方状态并开赛
+  Object.assign(player,{y:GROUND,vy:0,onGround:true,jumps:0,slides:false,
+    dead:false,deadRot:0});
+  state=ST.MENU;resetAndStart();}
+$('retryBtn').onclick=()=>{
+  if(selMode==='online'&&NET.ready)netRematchClick();
+  else resetAndStart();};
 function mpOver(){ // 双人结算（幂等，只触发一次）
   if(state!==ST.RUN)return;
   state=ST.OVER;breakCombo();S.hit();
@@ -1207,7 +1247,10 @@ function showOver(){
 }
 function backToMenu(){$('over').classList.add('hide');
   $('paused').classList.add('hide');state=ST.MENU;
-  player.dead=false;buildMenu();$('menu').classList.remove('hide');}
+  player.dead=false;buildMenu();$('menu').classList.remove('hide');
+  if(selMode==='online'){ // 清理联机残留
+    Object.assign(NET.peer,{up:false,dead:false,deadRot:0});
+    netStatus('房间 '+NET.room+' 保留，可重新开赛');}}
 function backToMenuOrRetry(fromKey){
   // 空格：再来一次；Esc 在 keydown 单独处理
   resetAndStart();}
