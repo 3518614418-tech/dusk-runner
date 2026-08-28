@@ -772,6 +772,8 @@ function netConnect(cb){
         p.char=m.ch||'shadow';p.lastT=performance.now();break;}
       case 'peer-dead':
         toast('💀 对手阵亡 · '+Math.floor(m.score)+'分 · '+Math.floor(m.dist)+'m');
+        NET.peer.dead=true;NET.peer.score=m.score;NET.peer.dist=m.dist;
+        if(player.dead&&state===ST.OVER)setTimeout(maybeNetOver,900);
         break;
       case 'peer-leave':
         NET.ready=false;netStatus('对手已离开房间');
@@ -851,30 +853,40 @@ function netSend(obj){
 function netStartRun(){
   srand(NET.seed);
   Object.assign(NET.peer,{x:150,y:GROUND,tx:150,ty:GROUND,sl:false,
-    dead:false,score:0,up:true});
+    dead:false,deadRot:0,score:0,dist:0,up:true});
   netStatus('🏃 比赛中 · 房间 '+NET.room);}
 function netTick(){ // 运行中每帧发送本机状态(约20Hz)
   if(!NET.ready||!NET.connected)return;
+  if(state!==ST.RUN&&state!==ST.OVER)return; // 只在比赛/死亡观战阶段发
   netSend({t:'state',x:player.x+player.w/2,y:player.y-(player.slides?12:22),
     sl:player.slides?1:0,d:player.dead?1:0,sc:Math.floor(score),
     dx:Math.floor(dist),ch:G.char?G.char.id:'shadow'});}
 function netDrawGhost(){
-  const p=NET.peer;if(!p.up||p.tx==null)return;
+  const p=NET.peer;
+  // 比赛结束(结算界面即将弹出)且对手已死 → 不再画幽灵
+  if(!p.up||p.tx==null)return;
+  if(state===ST.OVER&&(p.dead||player.dead))return; // 结算时清出虚影
   // 插值平滑
   p.x+=(p.tx-p.x)*.25;p.y+=(p.ty-p.y)*.25;
   ctx.save();
   ctx.translate(p.x,p.y);
-  ctx.globalAlpha=.45;ctx.scale(-1,1); // 幽灵镜像
+  if(p.dead){ // 对手已死：幽灵坠落旋转
+    p.deadRot=(p.deadRot||0)+.06;
+    ctx.rotate(p.deadRot);ctx.globalAlpha=Math.max(0,.45-(p.deadRot||0)*.1);
+  }else ctx.globalAlpha=.45;
+  ctx.scale(-1,1); // 幽灵镜像
   const sc=G.char;
   G.char=CHARS.find(c=>c.id===p.char)||CHARS[0];
+  GHOST_P.y=p.y;GHOST_P.slides=p.sl;
   drawPlayerBody(GHOST_P,p.char,GHOST_ST,'rgba(160,200,255,.6)');
   G.char=sc;
   ctx.restore();
-  ctx.save();ctx.globalAlpha=.75;
-  ctx.font='700 11px "Avenir Next","PingFang SC",sans-serif';
-  ctx.textAlign='center';ctx.fillStyle='#9fc5ff';
-  ctx.fillText((p.name||'对手')+' · '+Math.floor(p.score),p.x,p.y-62);
-  ctx.restore();}
+  if(!p.dead){
+    ctx.save();ctx.globalAlpha=.75;
+    ctx.font='700 11px "Avenir Next","PingFang SC",sans-serif';
+    ctx.textAlign='center';ctx.fillStyle='#9fc5ff';
+    ctx.fillText((p.name||'对手')+' · '+Math.floor(p.score),p.x,p.y-62);
+    ctx.restore();}}
 const GHOST_P={x:34,w:34,h:44,y:GROUND,onGround:true,slides:false,
   animT:0,dead:false}; // 幽灵渲染用的最小伪物理对象
 const GHOST_ST={shieldOn:false,floatT:0,slowT:0,ultT:0,ultFloatT:0};
@@ -1124,8 +1136,24 @@ function endRun(){
   burst(player.x+17,player.y-10,'#ff8a5c',26,240);
   if(selMode==='online'){ // 通知对手我阵亡了
     netSend({t:'dead',score:Math.floor(score),dist:Math.floor(dist)});
-    toast('💀 你阵亡了！看对手能不能跑更远…');}
+    toast('💀 你阵亡了！观战视角看对手跑…');
+    // 联机死亡：不弹结算，等对手也死/比完 → 由 maybeNetOver 判定
+    if(NET.peer.dead)setTimeout(maybeNetOver,900);
+    return;} // 跳过单人结算
   setTimeout(showOver,700);
+}
+/* 联机结算：双方都死(或对手已死) → 弹 VS 结算界面 */
+function maybeNetOver(){
+  if(state!==ST.OVER)return;
+  const s=Math.floor(score),s2=Math.floor(NET.peer.score||0);
+  $('overTitle').textContent=s>s2?'🏆 你赢了！':(s2>s?'😢 对手获胜！':'🤝 平局！');
+  $('finalScore').textContent=s+' : '+s2;
+  $('finalDist').textContent=Math.floor(dist)+'m / 对手'+Math.floor(NET.peer.dist||0)+'m';
+  $('finalOrbs').textContent=orbCount;
+  $('finalBest').textContent=Math.max(s,s2);
+  $('newBest').textContent='房间 '+NET.room;
+  $('starsRow').classList.add('hide');
+  $('over').classList.remove('hide');
 }
 function mpOver(){ // 双人结算（幂等，只触发一次）
   if(state!==ST.RUN)return;
@@ -1233,10 +1261,27 @@ function update(dt){
     if(m.life>m.max||m.x<-60){m.x=rnd(VW*.3,VW+80);m.y=rnd(10,150);
       m.vx=rnd(-260,-140);m.vy=rnd(60,130);m.life=0;m.max=rnd(1.2,2.2);}});
 
-  if(state===ST.PAUSE||(state===ST.OVER&&!player.dead&&!mp)){fxUpdate(dt);return;}
-  if(!mp&&player.dead){ // 单人：死亡动画后结算
+  if(state===ST.PAUSE||(state===ST.OVER&&!player.dead&&!mp&&selMode!=='online')){
+    fxUpdate(dt);return;}
+  if(!mp&&player.dead&&selMode!=='online'){ // 单人：死亡动画后结算
     player.deadVy+=1500*dt;player.y+=player.deadVy*dt;
     player.deadRot+=6*dt;fxUpdate(dt);return;}
+  if(selMode==='online'&&player.dead){ // 联机死亡：自己的尸体坠落，世界继续跑(观战)
+    player.deadVy+=1500*dt;player.y+=player.deadVy*dt;
+    player.deadRot+=6*dt;
+    // 障碍/萤火照常移动
+    for(let i=obstacles.length-1;i>=0;i--){const o=obstacles[i];
+      o.x-=speed*sdt;
+      if(o.kind==='bird'){o.flap+=sdt*14;
+        const base=o.low?GROUND-46:GROUND-92;
+        o.y=base+Math.sin(o.flap*.5)*8;}
+      if(o.kind==='stomp')o.anim+=sdt*4;
+      if(o.x<-80)obstacles.splice(i,1);}
+    for(let i=orbs.length-1;i>=0;i--){const b=orbs[i];
+      b.x-=speed*sdt;b.t+=sdt*3;
+      if(b.x<-30)orbs.splice(i,1);}
+    if(comboT>0){comboT-=dt;if(comboT<=0)breakCombo();}
+    fxUpdate(dt);return;}
   if(mp){ // 双人：各自坠落动画，有人活着世界就继续
     if(player.dead){player.deadVy+=1500*dt;player.y+=player.deadVy*dt;
       player.deadRot+=6*dt;}
@@ -2018,9 +2063,10 @@ function frame(t){
   drawBackground();drawGround();
   for(const o of obstacles)drawObstacle(o);
   drawOrbs();drawPlayer();
-  if(selMode==='online')netDrawGhost(); // 对手幽灵
+  if(selMode==='online')netDrawGhost(); // 对手幽灵(死亡观战时也画)
   drawFx();
-  if(selMode==='online'&&state===ST.RUN){
+  if(selMode==='online'&&NET.connected&&(state===ST.RUN||
+    (state===ST.OVER&&player.dead))){ // 比赛+死亡观战期间都保持同步
     netAcc+=dtRaw;while(netAcc>=.05){netTick();netAcc-=.05;} // 20Hz同步
     // 我死了但对手还活着：世界照常滚动看比赛
     if(player.dead&&!NET.peer.dead)simAcc=Math.max(0,simAcc);}
