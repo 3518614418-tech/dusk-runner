@@ -891,16 +891,19 @@ function netTick(){ // 运行中每帧发送本机状态(约20Hz)
 function netDrawGhost(){
   const p=NET.peer;
   if(!p.up||p.tx==null)return;
-  // 对手死了：1秒坠落淡出动画，之后永久消失
+  // 对手死了：坠落淡出动画，之后永久消失
   if(p.dead){
     p.deadRot=(p.deadRot||0)+.09;
-    if(p.deadRot>4){p.gone=true;return;} // 动画播完 → 彻底移除
+    if(p.deadRot>4){p.gone=true;return;}
   }
-  // 结算界面弹出后 → 不再绘制
   if(state===ST.OVER&&!$('over').classList.contains('hide'))return;
   if(p.gone)return;
-  // 插值平滑
-  p.x+=(p.tx-p.x)*.25;p.y+=(p.ty-p.y)*.25;
+  // 插值平滑(更跟手)
+  p.x+=(p.tx-p.x)*.4;p.y+=(p.ty-p.y)*.4;
+  // 跑步动画：由对手的移动速度驱动(位置变化→animT), 让姿势活起来
+  const moving=Math.abs(p.tx-p.x)+Math.abs((p.ty||GROUND)-p.y);
+  GHOST_P.animT+=.18+moving*.02;
+  GHOST_P.onGround=Math.abs((p.ty||GROUND)-GROUND)<2;
   ctx.save();
   ctx.translate(p.x,p.y);
   if(p.dead){ // 幽灵坠落旋转+快速淡出
@@ -1331,10 +1334,24 @@ function update(dt){
   if(!mp&&player.dead&&selMode!=='online'){ // 单人：死亡动画后结算
     player.deadVy+=1500*dt;player.y+=player.deadVy*dt;
     player.deadRot+=6*dt;fxUpdate(dt);return;}
-  if(selMode==='online'&&player.dead){ // 联机死亡：自己的尸体坠落，世界继续跑(观战)
+  if(selMode==='online'&&player.dead){ // 联机死亡：进入对手视角观战
+    // 相机接管：用对手的 dist 差值推进我的世界 → 画面=对手看到的地图滚动
+    if(NET.peer.dist>NET.obsDist){
+      const dd=(NET.peer.dist-NET.obsDist)*28; // 米→像素
+      NET.obsDist=NET.peer.dist;
+      // 推进我世界里的一切 + 生成新障碍(用对手距离解锁我的生成节奏)
+      const adv=Math.min(dd,600);
+      for(const o of obstacles)o.x-=adv;
+      for(const b of orbs)b.x-=adv;
+      dist=NET.peer.dist; // 距离跟对手同步(里程碑/解锁都用对手进度)
+      spawnGap-=adv;
+      if(spawnGap<=0){spawnObstacle();schedule();}
+      if(orbRow<=0){spawnOrbArc(VW+rnd(80,240));orbRow=rnd(420,900);}
+      score=Math.max(score,NET.peer.score*0.99); // 分数逼近对手实时分
+      $('scoreEl').textContent=Math.floor(score);}
+    // 我的尸体坠出画面即可
     player.deadVy+=1500*dt;player.y+=player.deadVy*dt;
     player.deadRot+=6*dt;
-    // 障碍/萤火照常移动
     for(let i=obstacles.length-1;i>=0;i--){const o=obstacles[i];
       o.x-=speed*sdt;
       if(o.kind==='bird'){o.flap+=sdt*14;
