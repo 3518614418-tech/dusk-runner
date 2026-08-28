@@ -769,15 +769,16 @@ function netConnect(cb){
         toast('🏁 房主已开赛!');break;
       case 'state':{const p=NET.peer;
         p.tx=m.x;p.ty=m.y;p.sl=!!m.sl;
+        if(m.nm)p.name=m.nm; // 同步对手角色名(幽灵标签用)
         const wasDead=p.dead;
         if(!p.dead)p.dead=!!m.d; // 对手一旦死亡标记，state不再覆盖
         if(!p.dead)p.score=m.sc; // 活着才刷新分
         p.dist=m.dx||p.dist;p.char=m.ch||'shadow';
         p.lastT=performance.now();
-        // 对手死亡标记首次从state出现(坠坑死漏发dead的兜底) → 补触发结算
+        // 对手死亡标记首次出现 → 我若已死且未弹结算 → 弹
         if(!wasDead&&p.dead&&player.dead&&state===ST.OVER
           &&$('over').classList.contains('hide')){
-          p.score=m.sc;p.dist=m.dx||p.dist;
+          p.score=Math.max(p.score,m.sc||0);p.dist=Math.max(p.dist,m.dx||0);
           setTimeout(maybeNetOver,600);}
         break;}
       case 'peer-dead':
@@ -874,6 +875,7 @@ function netSend(obj){
 /* 联机开始：同种子 → 同地图 */
 function netStartRun(){
   srand(NET.seed);
+  NET._deadSent=false;NET.obsTimer=0;
   Object.assign(NET.peer,{x:150,y:GROUND,tx:150,ty:GROUND,sl:false,
     dead:false,deadRot:0,gone:false,score:0,dist:0,up:true});
   netStatus('🏃 比赛中 · 房间 '+NET.room);}
@@ -882,7 +884,10 @@ function netTick(){ // 运行中每帧发送本机状态(约20Hz)
   if(state!==ST.RUN&&state!==ST.OVER)return; // 只在比赛/死亡观战阶段发
   netSend({t:'state',x:player.x+player.w/2,y:player.y-(player.slides?12:22),
     sl:player.slides?1:0,d:player.dead?1:0,sc:Math.floor(score),
-    dx:Math.floor(dist),ch:G.char?G.char.id:'shadow'});}
+    dx:Math.floor(dist),ch:G.char?G.char.id:'shadow',nm:(G.char?G.char.name:'')});
+  // 死亡瞬间：补发一次独立的dead包(防state丢包)
+  if(player.dead&&!NET._deadSent){NET._deadSent=true;
+    netSend({t:'dead',score:Math.floor(score),dist:Math.floor(dist)});}}
 function netDrawGhost(){
   const p=NET.peer;
   if(!p.up||p.tx==null)return;
@@ -1341,6 +1346,15 @@ function update(dt){
       b.x-=speed*sdt;b.t+=sdt*3;
       if(b.x<-30)orbs.splice(i,1);}
     if(comboT>0){comboT-=dt;if(comboT<=0)breakCombo();}
+    // 观战结算监视器：发现对手死亡 或 对手消息断流(掉线) → 结算
+    if(!$('over').classList.contains('hide')){fxUpdate(dt);return;}
+    if(NET.peer.dead){ // 对手已死(任何来源的标记)
+      NET.obsTimer=(NET.obsTimer||0)+dt;
+      if(NET.obsTimer>1){maybeNetOver();NET.obsTimer=0;}}
+    else{ // 对手活着：检查消息断流(>4秒无state=掉线/卡死) → 判我赢
+      const silent=performance.now()-(NET.peer.lastT||0);
+      if(silent>4000&&NET.peer.lastT>0){NET.peer.dead=true;
+        toast('⚠️ 对手连接断开，判定你获胜');maybeNetOver();}}
     fxUpdate(dt);return;}
   if(mp){ // 双人：各自坠落动画，有人活着世界就继续
     if(player.dead){player.deadVy+=1500*dt;player.y+=player.deadVy*dt;
