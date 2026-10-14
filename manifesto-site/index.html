@@ -236,7 +236,14 @@ body[data-active-scene="4"] #storyBandPhoto{pointer-events:none}#storyBandPhoto>
 .atelier-book-toggle{position:absolute;left:calc(50% - 180px);top:calc(50% - 310px);width:620px;height:650px;max-width:60vw;max-height:76vh;border:0;background:transparent;pointer-events:none;cursor:pointer;color:#f2eddf;font:12px sans-serif;display:flex;align-items:flex-end;justify-content:center;padding:0 0 8px}
 body[data-active-scene="4"] .atelier-book-toggle{pointer-events:auto}.atelier-book-toggle span{background:#451d1dcc;padding:9px 16px;border:1px solid #d8bc7a66}.atelier-book-toggle:focus-visible{outline:2px solid #d8bc7a;outline-offset:5px}
 @media(max-width:760px){.atelier-book-toggle{display:none}}
-</style><meta name="robots" content="index,follow"><meta property="og:title" content="经典新视界｜共产党宣言书封设计"><meta property="og:description" content="红色经典书封设计互动展览，包含书名字序、线描艺术、腰封对比、装帧工艺与十一页学校大屏展示。"><meta name="build-version" content="manifesto-render-20261014-restored-motion"></head>
+</style><meta name="robots" content="index,follow"><meta property="og:title" content="经典新视界｜共产党宣言书封设计"><meta property="og:description" content="红色经典书封设计互动展览，包含书名字序、线描艺术、腰封对比、装帧工艺与十一页学校大屏展示。"><meta name="build-version" content="manifesto-render-20261014-complete-process"><style id="fullscreen-process-fix">
+body[data-active-scene="7"] .archive-grid{display:none}.atelier-process-panel{position:absolute;left:44%;right:7%;top:22%;bottom:16%;display:flex;flex-direction:column;justify-content:center;gap:14px;color:#211d1b}
+.atelier-process-heading{font-size:11px;letter-spacing:.18em;color:#841f27;margin-bottom:8px}
+.atelier-process-step{display:grid;grid-template-columns:40px 1fr;gap:16px;border-bottom:1px solid #841f2733;padding:10px 0;font-size:clamp(16px,1.6vw,28px);line-height:1.6}
+.atelier-process-step small{color:#841f27;font-size:11px;letter-spacing:.1em;padding-top:7px}
+.atelier-process-note{font-size:12px;line-height:1.8;margin-top:8px;color:#6a574b}
+@media(max-width:760px){body[data-active-scene="7"] .archive-grid{display:none}.atelier-process-panel{display:none}}
+</style></head>
 <body class="full-story" data-story-mode="static">
 <a class="skip" href="#main">跳至正文</a>
 <div aria-hidden="true" class="reading-progress"><span id="readingBar"></span></div>
@@ -1071,4 +1078,4 @@ function update(){lens.style.setProperty('--zoom',range.value);root.querySelecto
 cards.forEach((c,i)=>{const b=document.createElement('button');b.type='button';b.innerHTML='<span>'+String(i+1).padStart(2,'0')+'</span><strong>'+c.querySelector('h3').textContent+'</strong>';b.onclick=()=>select(i);tabs.append(b)});
 range.addEventListener('input',update);lens.addEventListener('pointermove',e=>{const r=lens.getBoundingClientRect();lens.style.setProperty('--origin',((e.clientX-r.left)/r.width*100)+'% '+((e.clientY-r.top)/r.height*100)+'%')});lens.addEventListener('pointerleave',()=>lens.style.setProperty('--origin','50% 50%'));select(0);
 })();
-</script></body></html>
+</script><script>(()=>{const archive=document.getElementById('storyArchive');if(!archive)return;const panel=document.createElement('div');panel.className='atelier-process-panel';panel.setAttribute('aria-label','五步协作流程');panel.innerHTML='<div class="atelier-process-heading">READ / DESIGN / PRACTICE</div>'+['研读经典','确立设计主题','书名、色彩与线描','腰封与装帧整合','制作与课堂讲述'].map((t,i)=>'<div class="atelier-process-step"><small>0'+(i+1)+'</small><span>'+t+'</span></div>').join('')+'<div class="atelier-process-note">本班同学 3—5 人协作 · 标注成员姓名与分工<br>留存电子稿与纸质作品 · 展示 5—10 分钟</div>';archive.append(panel);})();</script></body></html>
